@@ -296,6 +296,23 @@ const laneProjects = (laneKey) => visibleProjects.value.filter((project) => proj
 const laneMeta = (laneKey) => lanes.find((lane) => lane.key === laneKey);
 const laneTone = (laneKey) => laneMeta(laneKey)?.tone || 'slate';
 const laneLabel = (laneKey) => laneMeta(laneKey)?.label || laneKey;
+const initials = (value = '') =>
+  value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('');
+const avatarTone = (value = '') => {
+  const normalized = value.trim();
+  if (!normalized) {
+    return 0;
+  }
+
+  return normalized
+    .split('')
+    .reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6;
+};
 
 const setView = (view) => {
   activeView.value = view;
