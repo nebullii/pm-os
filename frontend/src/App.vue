@@ -1,5 +1,11 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import {
+  getGitHubRepoDetails,
+  getGitHubRepos,
+  getGitHubSession,
+  logoutGitHubSession,
+} from './api';
 
 const currentWeek = 'Week 3';
 const activeView = ref('board');
@@ -7,12 +13,19 @@ const boardFilter = ref('all');
 const selectedId = ref('PM-108');
 const commandOpen = ref(false);
 const showComposer = ref(false);
+const showCardModal = ref(false);
 const showGitHubLogin = ref(false);
 const detailCollapsed = ref(false);
 const searchQuery = ref('');
 const dragProjectId = ref(null);
 
+const PROJECTS_STORAGE_KEY = 'pm-os-projects-v1';
+const SELECTED_ID_STORAGE_KEY = 'pm-os-selected-project-v1';
+
 const githubUser = ref(null);
+const githubConfigured = ref(true);
+const githubBusy = ref(false);
+const githubError = ref('');
 const availableRepos = ref([]);
 const repoForm = reactive({
   projectId: 'PM-108',
@@ -143,6 +156,34 @@ const projects = ref([
   },
 ]);
 
+const persistProjects = () => {
+  localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects.value));
+};
+
+const hydrateStoredProjects = () => {
+  const raw = localStorage.getItem(PROJECTS_STORAGE_KEY);
+  if (!raw) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length) {
+      projects.value = parsed;
+    }
+  } catch (error) {
+    localStorage.removeItem(PROJECTS_STORAGE_KEY);
+  }
+};
+
+const hydrateStoredSelectedId = () => {
+  const stored = localStorage.getItem(SELECTED_ID_STORAGE_KEY);
+  if (stored) {
+    selectedId.value = stored;
+    repoForm.projectId = stored;
+  }
+};
+
 const activity = ref([
   'PM-108 moved to Ready To Demo',
   'PM-087 gained 3 votes',
@@ -218,6 +259,25 @@ const blockedCount = computed(() => projects.value.filter((project) => project.b
 const staleCount = computed(() => projects.value.filter((project) => project.lastUpdate === 'Yesterday').length);
 const submissionCount = computed(() => projects.value.length);
 const connectedCount = computed(() => projects.value.filter((project) => project.repo).length);
+const trackedProjects = computed(() => projects.value.filter((project) => project.repo));
+const profileSnapshot = computed(() => [
+  { label: 'Vote queue presence', value: `${sortedVoteQueue.value.length} demos` },
+  { label: 'Board focus', value: `${readyCount.value} ready / ${shippedCount.value} shipped` },
+  { label: 'Risk signal', value: `${blockedCount.value} blocked submissions` },
+  { label: 'Repository coverage', value: `${connectedCount.value}/${submissionCount.value} linked` },
+]);
+const profileFocusAreas = computed(() =>
+  githubUser.value?.tags?.length
+    ? githubUser.value.tags
+    : ['Weekly reviews', 'Execution quality', 'Repository sync', 'Proof-first updates'],
+);
+const profilePreferences = computed(() => [
+  { label: 'Update cadence', value: 'Daily or on push' },
+  { label: 'Primary review mode', value: 'Friday demo queue' },
+  { label: 'Proof requirement', value: 'Repo + demo link' },
+  { label: 'Sync source', value: githubConfigured.value ? 'GitHub OAuth' : 'Manual until configured' },
+]);
+const profileRecentActivity = computed(() => activity.value.slice(0, 4));
 
 const commandItems = computed(() => [
   { key: 'view-profile', label: 'Open profile page', action: () => setView('profile') },
@@ -233,6 +293,10 @@ const commandItems = computed(() => [
 
 const laneProjects = (laneKey) => visibleProjects.value.filter((project) => project.lane === laneKey);
 
+const laneMeta = (laneKey) => lanes.find((lane) => lane.key === laneKey);
+const laneTone = (laneKey) => laneMeta(laneKey)?.tone || 'slate';
+const laneLabel = (laneKey) => laneMeta(laneKey)?.label || laneKey;
+
 const setView = (view) => {
   activeView.value = view;
   commandOpen.value = false;
@@ -247,6 +311,11 @@ const applyFilter = (filter) => {
 const openProject = (projectId) => {
   selectedId.value = projectId;
   repoForm.projectId = projectId;
+  showCardModal.value = true;
+};
+
+const closeCardModal = () => {
+  showCardModal.value = false;
 };
 
 const openComposer = () => {
@@ -257,28 +326,34 @@ const openComposer = () => {
 const openGitHubLogin = () => {
   showGitHubLogin.value = true;
   commandOpen.value = false;
+  githubError.value = '';
 };
 
 const logoutGitHub = () => {
-  githubUser.value = null;
-  availableRepos.value = [];
-  repoForm.repoFullName = '';
-  showGitHubLogin.value = false;
+  logoutGitHubSession()
+    .catch(() => null)
+    .finally(() => {
+      githubUser.value = null;
+      availableRepos.value = [];
+      repoForm.repoFullName = '';
+      showGitHubLogin.value = false;
+      githubError.value = '';
 
-  projects.value = projects.value.map((project) => {
-    const hadRepo = Boolean(project.repo);
+      projects.value = projects.value.map((project) => {
+        const hadRepo = Boolean(project.repo);
 
-    return {
-      ...project,
-      repo: null,
-      githubActivity: [],
-      proof: hadRepo ? 'GitHub disconnected' : project.proof,
-      proofUrl: hadRepo ? 'Reconnect repo to restore proof' : project.proofUrl,
-      statusNote: hadRepo ? 'GitHub disconnected' : project.statusNote,
-    };
-  });
+        return {
+          ...project,
+          repo: null,
+          githubActivity: [],
+          proof: hadRepo ? 'GitHub disconnected' : project.proof,
+          proofUrl: hadRepo ? 'Reconnect repo to restore proof' : project.proofUrl,
+          statusNote: hadRepo ? 'GitHub disconnected' : project.statusNote,
+        };
+      });
 
-  addActivity('GitHub disconnected');
+      addActivity('GitHub disconnected');
+    });
 };
 
 const resetComposer = () => {
@@ -385,101 +460,113 @@ const clearDrag = () => {
   dragProjectId.value = null;
 };
 
-const loginWithGitHub = () => {
-  githubUser.value = {
-    name: 'Neha Chaudhari',
-    handle: '@nebullii',
-    avatar: 'NC',
-  };
+const loadGitHubRepos = async () => {
+  const payload = await getGitHubRepos();
+  availableRepos.value = payload.repos || [];
 
-  availableRepos.value = [
-    {
-      id: 1,
-      fullName: 'nebullii/cohort-os',
-      branch: 'main',
-      lastCommit: 'feat: host brief auto-generation',
-      commitCount: 38,
-      openPrs: 1,
-      lastPush: '12m ago',
-      status: 'merged recently',
-    },
-    {
-      id: 2,
-      fullName: 'nebullii/proof-first-submissions',
-      branch: 'main',
-      lastCommit: 'fix: require demo link for Friday queue',
-      commitCount: 19,
-      openPrs: 2,
-      lastPush: '1h ago',
-      status: 'active',
-    },
-    {
-      id: 3,
-      fullName: 'nebullii/ship-radar',
-      branch: 'develop',
-      lastCommit: 'feat: stale repo detection',
-      commitCount: 52,
-      openPrs: 0,
-      lastPush: 'Yesterday',
-      status: 'quiet',
-    },
-  ];
-
-  repoForm.repoFullName = availableRepos.value[0].fullName;
-  showGitHubLogin.value = false;
-  addActivity('GitHub connected for @nebullii');
+  if (!repoForm.repoFullName && availableRepos.value.length) {
+    repoForm.repoFullName = availableRepos.value[0].fullName;
+  }
 };
 
-const connectRepoToProject = () => {
+const loadGitHubSession = async () => {
+  githubBusy.value = true;
+  githubError.value = '';
+
+  try {
+    const payload = await getGitHubSession();
+    githubConfigured.value = payload.configured;
+    githubUser.value = payload.user;
+
+    if (payload.authenticated) {
+      await loadGitHubRepos();
+    } else {
+      availableRepos.value = [];
+    }
+  } catch (error) {
+    githubError.value = 'Failed to load GitHub session.';
+  } finally {
+    githubBusy.value = false;
+  }
+};
+
+const loginWithGitHub = () => {
+  githubError.value = '';
+
+  if (!githubConfigured.value) {
+    githubError.value = 'GitHub OAuth is not configured yet. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in Vercel.';
+    return;
+  }
+
+  window.location.href = '/api/github/login';
+};
+
+const applyRepoDetailsToProject = (project, repo) => {
+  project.repo = repo;
+  project.githubActivity = repo.activity || [];
+  project.proof = `GitHub connected · ${repo.branch}`;
+  project.proofUrl = repo.url || repo.fullName;
+  project.lastUpdate = repo.lastPush || 'Just now';
+  project.statusNote = `Tracking ${repo.fullName}`;
+
+  if (repo.openPrs > 0 && project.lane === 'scoping') {
+    project.lane = 'building';
+  } else if (repo.openPrs === 0 && project.lane === 'building') {
+    project.lane = 'ready';
+  }
+};
+
+const connectRepoToProject = async () => {
   if (!githubUser.value || !repoForm.projectId || !repoForm.repoFullName) {
     return;
   }
 
   const project = projects.value.find((item) => item.id === repoForm.projectId);
-  const repo = availableRepos.value.find((item) => item.fullName === repoForm.repoFullName);
-  if (!project || !repo) {
+  if (!project) {
     return;
   }
 
-  project.repo = repo;
-  project.githubActivity = [
-    `Latest push ${repo.lastPush}`,
-    `${repo.openPrs} open PR${repo.openPrs === 1 ? '' : 's'}`,
-    `${repo.commitCount} tracked commits`,
-  ];
-  project.proof = `GitHub connected · ${repo.branch}`;
-  project.proofUrl = repo.fullName;
-  project.lastUpdate = repo.lastPush;
-  project.statusNote = `Tracking ${repo.fullName}`;
-  if (repo.openPrs > 0 && project.lane === 'scoping') {
-    project.lane = 'building';
-  }
+  githubBusy.value = true;
+  githubError.value = '';
 
-  selectedId.value = project.id;
-  addActivity(`${project.id} linked to ${repo.fullName}`);
+  try {
+    const payload = await getGitHubRepoDetails(repoForm.repoFullName);
+    if (!payload?.repo) {
+      throw new Error('Repository details were not returned.');
+    }
+
+    applyRepoDetailsToProject(project, payload.repo);
+    selectedId.value = project.id;
+    addActivity(`${project.id} linked to ${payload.repo.fullName}`);
+  } catch (error) {
+    githubError.value = 'Failed to connect the selected repository.';
+  } finally {
+    githubBusy.value = false;
+  }
 };
 
-const simulateGitHubSync = () => {
+const simulateGitHubSync = async () => {
   if (!selectedProject.value?.repo) {
     return;
   }
 
-  selectedProject.value.lastUpdate = 'Just now';
-  selectedProject.value.githubActivity = [
-    'New commit pushed 1m ago',
-    'PR merged into main',
-    `${selectedProject.value.repo.commitCount + 1} tracked commits`,
-  ];
-  selectedProject.value.repo = {
-    ...selectedProject.value.repo,
-    commitCount: selectedProject.value.repo.commitCount + 1,
-    openPrs: 0,
-    lastPush: '1m ago',
-    status: 'merged just now',
-  };
-  selectedProject.value.lane = selectedProject.value.lane === 'building' ? 'ready' : selectedProject.value.lane;
-  selectedProject.value.statusNote = 'Updated automatically from GitHub';
-  addActivity(`${selectedProject.value.id} auto-updated from GitHub activity`);
+  githubBusy.value = true;
+  githubError.value = '';
+
+  try {
+    const payload = await getGitHubRepoDetails(selectedProject.value.repo.fullName);
+    if (!payload?.repo) {
+      throw new Error('Repository details were not returned.');
+    }
+
+    applyRepoDetailsToProject(selectedProject.value, payload.repo);
+    selectedProject.value.statusNote = 'Updated automatically from GitHub';
+    addActivity(`${selectedProject.value.id} auto-updated from GitHub activity`);
+  } catch (error) {
+    githubError.value = 'Failed to sync repository activity from GitHub.';
+  } finally {
+    githubBusy.value = false;
+  }
 };
 
 const handleKeydown = (event) => {
@@ -502,11 +589,27 @@ const handleKeydown = (event) => {
     commandOpen.value = false;
     showComposer.value = false;
     showGitHubLogin.value = false;
+    showCardModal.value = false;
   }
 };
 
-onMounted(() => {
+watch(
+  projects,
+  () => {
+    persistProjects();
+  },
+  { deep: true },
+);
+
+watch(selectedId, (value) => {
+  localStorage.setItem(SELECTED_ID_STORAGE_KEY, value);
+});
+
+onMounted(async () => {
   window.addEventListener('keydown', handleKeydown);
+  hydrateStoredProjects();
+  hydrateStoredSelectedId();
+  await loadGitHubSession();
 });
 
 onBeforeUnmount(() => {
@@ -531,28 +634,46 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="githubUser" class="profile-card">
           <div class="profile-topline">
-            <div class="avatar-chip avatar-chip-large">{{ githubUser.avatar }}</div>
-            <div>
+            <div class="avatar-wrap">
+              <div class="avatar-chip avatar-chip-large">{{ initials(githubUser.name) || githubUser.avatar }}</div>
+              <span class="avatar-source" aria-hidden="true" title="Connected via GitHub">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10">
+                  <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.01-.02-1.98-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.45.11-3.03 0 0 .96-.31 3.15 1.18a10.96 10.96 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.74.11 3.03.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14 0 1.54-.01 2.79-.01 3.17 0 .31.21.68.8.56 4.56-1.53 7.85-5.84 7.85-10.91C23.5 5.65 18.35.5 12 .5z"/>
+                </svg>
+              </span>
+            </div>
+            <div class="profile-identity">
               <strong>{{ githubUser.name }}</strong>
               <p class="mini-copy">{{ githubUser.handle }}</p>
             </div>
           </div>
-          <dl class="profile-meta">
-            <div>
-              <dt>Source</dt>
-              <dd>GitHub</dd>
+          <div class="profile-stats">
+            <div class="profile-stat">
+              <strong>{{ availableRepos.length }}</strong>
+              <span>Repos</span>
             </div>
-            <div>
-              <dt>Repos loaded</dt>
-              <dd>{{ availableRepos.length }}</dd>
+            <div class="profile-stat">
+              <strong>{{ connectedCount }}</strong>
+              <span>Tracked</span>
             </div>
-            <div>
-              <dt>Tracked repos</dt>
-              <dd>{{ connectedCount }}</dd>
+            <div class="profile-stat">
+              <strong>{{ shippedCount }}</strong>
+              <span>Shipped</span>
             </div>
-          </dl>
+          </div>
           <div class="profile-actions">
-            <button class="detail-action" @click="setView('profile')">Open profile</button>
+            <button class="detail-action" @click="setView('profile')">Profile</button>
+            <a
+              class="detail-action profile-link"
+              :href="`https://github.com/${(githubUser.handle || '').replace('@', '')}`"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" aria-hidden="true">
+                <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.01-.02-1.98-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.45.11-3.03 0 0 .96-.31 3.15 1.18a10.96 10.96 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.74.11 3.03.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14 0 1.54-.01 2.79-.01 3.17 0 .31.21.68.8.56 4.56-1.53 7.85-5.84 7.85-10.91C23.5 5.65 18.35.5 12 .5z"/>
+              </svg>
+              GitHub
+            </a>
           </div>
         </div>
         <div v-else class="profile-empty">
@@ -654,7 +775,7 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
-      <section class="content-grid">
+      <section class="content-grid" :class="{ 'is-detail-collapsed': detailCollapsed }">
         <section class="panel main-panel">
           <div class="panel-header board-header">
             <div>
@@ -800,11 +921,31 @@ onBeforeUnmount(() => {
               </article>
               <article class="profile-stat-card">
                 <span class="detail-label">Tracked submissions</span>
-                <strong>{{ projects.filter((project) => project.repo).length }}</strong>
+                <strong>{{ trackedProjects.length }}</strong>
               </article>
             </section>
 
+            <section v-if="githubError || !githubConfigured" class="profile-empty-state profile-alert">
+              <p v-if="githubError">{{ githubError }}</p>
+              <p v-else>GitHub OAuth is not configured in Vercel yet. Add `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.</p>
+            </section>
+
             <section class="profile-sections">
+              <article class="panel profile-page-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Snapshot</h2>
+                    <p>A fast read on how this account is operating inside PM OS.</p>
+                  </div>
+                </div>
+                <div class="snapshot-grid">
+                  <div v-for="item in profileSnapshot" :key="item.label" class="snapshot-item">
+                    <span class="detail-label">{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+              </article>
+
               <article class="panel profile-page-panel">
                 <div class="panel-header">
                   <div>
@@ -823,13 +964,81 @@ onBeforeUnmount(() => {
                   </div>
                   <div>
                     <dt>Provider</dt>
-                    <dd>{{ githubUser ? 'GitHub OAuth (mocked UI state)' : 'None' }}</dd>
+                    <dd>{{ githubUser ? 'GitHub OAuth' : 'None' }}</dd>
                   </div>
                   <div>
                     <dt>Session state</dt>
                     <dd>{{ githubUser ? 'Connected' : 'Signed out' }}</dd>
                   </div>
                 </dl>
+              </article>
+
+              <article class="panel profile-page-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>About</h2>
+                    <p>Short profile summary and GitHub-derived context.</p>
+                  </div>
+                </div>
+                <div v-if="githubUser" class="about-section">
+                  <p class="about-copy">{{ githubUser.bio }}</p>
+                  <dl class="profile-detail-list compact">
+                    <div>
+                      <dt>Role</dt>
+                      <dd>{{ githubUser.role }}</dd>
+                    </div>
+                    <div>
+                      <dt>Location</dt>
+                      <dd>{{ githubUser.location }}</dd>
+                    </div>
+                    <div>
+                      <dt>Website</dt>
+                      <dd>{{ githubUser.website }}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <div v-else class="profile-empty-state">
+                  <p>Connect GitHub to populate this section.</p>
+                </div>
+              </article>
+
+              <article class="panel profile-page-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Tags</h2>
+                    <p>Signals that describe the user, workflow, and current focus areas.</p>
+                  </div>
+                </div>
+                <div class="tag-row profile-tag-row">
+                  <span v-for="tag in profileFocusAreas" :key="tag" class="tag">{{ tag }}</span>
+                </div>
+              </article>
+
+              <article class="panel profile-page-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Preferences</h2>
+                    <p>Default operating preferences for progress tracking and review.</p>
+                  </div>
+                </div>
+                <dl class="profile-detail-list compact">
+                  <div v-for="item in profilePreferences" :key="item.label">
+                    <dt>{{ item.label }}</dt>
+                    <dd>{{ item.value }}</dd>
+                  </div>
+                </dl>
+              </article>
+
+              <article class="panel profile-page-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Recent activity</h2>
+                    <p>The latest account and project actions reflected in PM OS.</p>
+                  </div>
+                </div>
+                <ul class="activity-list profile-activity-list">
+                  <li v-for="item in profileRecentActivity" :key="item">{{ item }}</li>
+                </ul>
               </article>
 
               <article class="panel profile-page-panel">
@@ -855,6 +1064,27 @@ onBeforeUnmount(() => {
                   <p>No repositories loaded yet.</p>
                 </div>
               </article>
+
+              <article class="panel profile-page-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Tracked submissions</h2>
+                    <p>Projects currently mapped to a repository from this profile.</p>
+                  </div>
+                </div>
+                <div v-if="trackedProjects.length" class="tracked-project-list">
+                  <article v-for="project in trackedProjects" :key="project.id" class="tracked-project-row">
+                    <div>
+                      <strong>{{ project.id }} · {{ project.name }}</strong>
+                      <p class="mini-copy">{{ project.repo?.fullName }}</p>
+                    </div>
+                    <span class="status-badge" :data-tone="laneTone(project.lane)">{{ laneLabel(project.lane) }}</span>
+                  </article>
+                </div>
+                <div v-else class="profile-empty-state">
+                  <p>No submissions are connected to a repo yet.</p>
+                </div>
+              </article>
             </section>
           </div>
 
@@ -878,109 +1108,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <aside class="right-rail">
-          <section v-if="selectedProject" class="panel detail-panel" :class="{ 'is-collapsed': detailCollapsed }">
-            <button
-              class="panel-header detail-toggle"
-              :aria-expanded="!detailCollapsed"
-              @click="detailCollapsed = !detailCollapsed"
-            >
-              <div>
-                <p class="eyebrow">{{ selectedProject.id }}</p>
-                <h2>{{ selectedProject.name }}</h2>
-              </div>
-              <div class="detail-toggle-right">
-                <span class="status-badge" :data-tone="laneTone(selectedProject.lane)">{{ laneLabel(selectedProject.lane) }}</span>
-                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </div>
-            </button>
-
-            <div v-show="!detailCollapsed" class="detail-body">
-
-            <div class="detail-grid">
-              <div>
-                <span class="detail-label">Owner</span>
-                <p>{{ selectedProject.owner }} <span class="muted">{{ selectedProject.handle }}</span></p>
-              </div>
-              <div>
-                <span class="detail-label">Momentum</span>
-                <p>{{ selectedProject.momentum }}</p>
-              </div>
-              <div>
-                <span class="detail-label">Proof</span>
-                <p>{{ selectedProject.proof }}</p>
-              </div>
-              <div>
-                <span class="detail-label">Repo</span>
-                <p>{{ selectedProject.repo?.fullName || 'Not connected' }}</p>
-              </div>
-            </div>
-
-            <p class="detail-copy">{{ selectedProject.summary }}</p>
-
-            <div class="tag-row">
-              <span v-for="tag in selectedProject.tags" :key="tag" class="tag">{{ tag }}</span>
-            </div>
-
-            <div class="repo-connect-box">
-              <div class="panel-header">
-                <div>
-                  <h2>Track GitHub repo</h2>
-                  <p>Login first, then choose a repo to attach.</p>
-                </div>
-              </div>
-              <select v-model="repoForm.projectId" class="text-input">
-                <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.id }} · {{ project.name }}</option>
-              </select>
-              <select v-model="repoForm.repoFullName" class="text-input" :disabled="!githubUser">
-                <option value="">{{ githubUser ? 'Select a repository' : 'Login with GitHub first' }}</option>
-                <option v-for="repo in availableRepos" :key="repo.id" :value="repo.fullName">{{ repo.fullName }}</option>
-              </select>
-              <div class="modal-actions repo-actions">
-                <button class="detail-action" @click="openGitHubLogin">{{ githubUser ? 'Manage GitHub' : 'Login with GitHub' }}</button>
-                <button class="detail-action primary" :disabled="!githubUser || !repoForm.repoFullName" @click="connectRepoToProject">Track repo</button>
-              </div>
-            </div>
-
-            <div v-if="selectedProject.githubActivity.length" class="github-activity-box">
-              <div class="panel-header">
-                <div>
-                  <h2>Recent GitHub activity</h2>
-                  <p>Auto-updates board state from repo changes.</p>
-                </div>
-              </div>
-              <ul class="activity-list">
-                <li v-for="item in selectedProject.githubActivity" :key="item">{{ item }}</li>
-              </ul>
-              <button class="detail-action primary" @click="simulateGitHubSync">Simulate new GitHub event</button>
-            </div>
-
-            <div class="action-stack">
-              <button class="detail-action primary" @click="voteForSelected">Add vote</button>
-              <button class="detail-action" @click="moveSelectedTo('ready')">Mark ready</button>
-              <button class="detail-action" @click="moveSelectedTo('shipped')">Mark shipped</button>
-              <button class="detail-action" @click="generateFridayBrief">Generate Friday brief</button>
-            </div>
-
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-header">
-              <div>
-                <h2>Live host brief</h2>
-                <p>What the call lead should say next.</p>
-              </div>
-            </div>
-            <div class="brief-box">
-              <p><strong>Lead with:</strong> {{ sortedVoteQueue[0]?.name || 'No eligible demo yet' }}</p>
-              <p><strong>Fast follow:</strong> {{ sortedVoteQueue[1]?.name || 'No second demo yet' }}</p>
-              <p><strong>GitHub-connected:</strong> {{ connectedCount }} submissions now auto-update from repos.</p>
-            </div>
-          </section>
-        </aside>
       </section>
     </main>
 
@@ -1031,10 +1158,16 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <p class="detail-copy">
-          Demo flow: connect your GitHub account, then manually pick one repo from the dropdown to track progress for a submission.
+          Connect your GitHub account, then pick a repository and attach it to a submission.
         </p>
+        <div v-if="githubError || !githubConfigured" class="profile-empty-state profile-alert">
+          <p v-if="githubError">{{ githubError }}</p>
+          <p v-else>GitHub OAuth is not configured in Vercel yet. Add `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.</p>
+        </div>
         <div v-if="!githubUser" class="github-login-cta">
-          <button class="detail-action primary" @click="loginWithGitHub">Continue with GitHub</button>
+          <button class="detail-action primary" :disabled="githubBusy || !githubConfigured" @click="loginWithGitHub">
+            {{ githubBusy ? 'Loading...' : 'Continue with GitHub' }}
+          </button>
         </div>
         <div v-else class="github-repo-list">
           <article v-for="repo in availableRepos" :key="repo.id" class="repo-row">
@@ -1047,10 +1180,113 @@ onBeforeUnmount(() => {
               <span>{{ repo.openPrs }} PR</span>
             </div>
           </article>
+          <div class="repo-connect-box">
+            <select v-model="repoForm.projectId" class="text-input" :disabled="githubBusy">
+              <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.id }} · {{ project.name }}</option>
+            </select>
+            <select v-model="repoForm.repoFullName" class="text-input" :disabled="githubBusy">
+              <option value="">Select a repository</option>
+              <option v-for="repo in availableRepos" :key="repo.id" :value="repo.fullName">{{ repo.fullName }}</option>
+            </select>
+            <div class="modal-actions repo-actions">
+              <button class="detail-action primary" :disabled="!repoForm.repoFullName || githubBusy" @click="connectRepoToProject">
+                {{ githubBusy ? 'Connecting...' : 'Track repo for project' }}
+              </button>
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="detail-action" @click="showGitHubLogin = false">Close</button>
         </div>
+      </section>
+    </div>
+
+    <div v-if="showCardModal && selectedProject" class="command-backdrop" @click="closeCardModal">
+      <section class="card-modal" @click.stop role="dialog" aria-modal="true">
+        <header class="card-modal-header">
+          <div class="card-modal-title">
+            <span class="issue-id">{{ selectedProject.id }}</span>
+            <h2>{{ selectedProject.name }}</h2>
+            <div class="card-modal-meta">
+              <span class="status-badge" :data-tone="laneTone(selectedProject.lane)">{{ laneLabel(selectedProject.lane) }}</span>
+              <span class="owner-chip">
+                <span class="avatar" :data-tone="avatarTone(selectedProject.owner)">{{ initials(selectedProject.owner) }}</span>
+                {{ selectedProject.owner }} <span class="muted">{{ selectedProject.handle }}</span>
+              </span>
+            </div>
+          </div>
+          <button class="modal-close" @click="closeCardModal" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </header>
+
+        <div class="card-modal-body">
+          <section class="detail-grid">
+            <div>
+              <span class="detail-label">Team</span>
+              <p>{{ selectedProject.team }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Momentum</span>
+              <p><span class="momentum-dot" :data-momentum="selectedProject.momentum"></span> {{ selectedProject.momentum }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Votes</span>
+              <p>{{ selectedProject.votes }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Last update</span>
+              <p>{{ selectedProject.lastUpdate }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Proof</span>
+              <p>{{ selectedProject.proof }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Demo link</span>
+              <p>{{ selectedProject.proofUrl }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Blocker</span>
+              <p>{{ selectedProject.blocker }}</p>
+            </div>
+            <div>
+              <span class="detail-label">Repo</span>
+              <p>{{ selectedProject.repo?.fullName || 'Not connected' }}</p>
+            </div>
+          </section>
+
+          <section class="card-modal-section">
+            <span class="detail-label">Summary</span>
+            <p class="detail-copy">{{ selectedProject.summary }}</p>
+          </section>
+
+          <section v-if="selectedProject.tags.length" class="card-modal-section">
+            <span class="detail-label">Tags</span>
+            <div class="tag-row">
+              <span v-for="tag in selectedProject.tags" :key="tag" class="tag">{{ tag }}</span>
+            </div>
+          </section>
+
+          <section v-if="selectedProject.githubActivity.length" class="card-modal-section">
+            <span class="detail-label">Recent GitHub activity</span>
+            <ul class="activity-list">
+              <li v-for="item in selectedProject.githubActivity" :key="item">{{ item }}</li>
+            </ul>
+          </section>
+        </div>
+
+        <footer class="card-modal-footer">
+          <button v-if="selectedProject.repo" class="detail-action" :disabled="githubBusy" @click="simulateGitHubSync">
+            {{ githubBusy ? 'Syncing...' : 'Sync from GitHub' }}
+          </button>
+          <button class="detail-action" @click="moveSelectedTo('ready')">Mark ready</button>
+          <button class="detail-action" @click="moveSelectedTo('shipped')">Mark shipped</button>
+          <button class="detail-action primary" @click="voteForSelected">Add vote</button>
+        </footer>
       </section>
     </div>
   </div>

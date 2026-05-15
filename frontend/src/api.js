@@ -1,42 +1,38 @@
-export const apiFetch = async (url, options = {}) => {
-  const token = localStorage.getItem('token');
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+const parseError = async (response) => {
+  const contentType = response.headers.get('content-type') || '';
 
-  try {
-    const response = await fetch(`/api${url}`, { ...options, headers });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || 'Unknown error');
-    }
-    return response.json();
-  } catch (error) {
-    throw error;
+  if (contentType.includes('application/json')) {
+    const payload = await response.json();
+    return payload.error || payload.message || JSON.stringify(payload);
   }
+
+  return response.text();
 };
 
-// Fetch counts of pending and completed tasks
-export const getTaskCounts = async () => {
-  return apiFetch('/tasks/counts');
-};
-
-// Create a new task
-export const createTask = async ({ userId, title }) => {
-  return apiFetch('/tasks', {
-    method: 'POST',
-    body: JSON.stringify({ user_id: userId, title }),
+export const jsonFetch = async (url, options = {}) => {
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
   });
+
+  if (!response.ok) {
+    throw new Error((await parseError(response)) || 'Request failed');
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+
+  return response.json();
 };
 
-// Complete a task
-export const completeTask = async (taskId) => {
-  return apiFetch(`/tasks/${taskId}/complete`, { method: 'PUT' });
-};
-
-// Delete a task
-export const deleteTask = async (taskId) => {
-  return apiFetch(`/tasks/${taskId}`, { method: 'DELETE' });
-};
+export const getGitHubSession = async () => jsonFetch('/api/github/me');
+export const getGitHubRepos = async () => jsonFetch('/api/github/repos');
+export const getGitHubRepoDetails = async (fullName) =>
+  jsonFetch(`/api/github/repo?full_name=${encodeURIComponent(fullName)}`);
+export const logoutGitHubSession = async () => jsonFetch('/api/github/logout', { method: 'POST' });
