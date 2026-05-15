@@ -1,0 +1,238 @@
+{
+  "api": [
+    {
+      "method": "POST",
+      "path": "/auth/register/",
+      "request_schema": {
+        "email": "str",
+        "password": "str"
+      },
+      "response_schema": {
+        "msg": "str"
+      },
+      "auth": "none",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "POST",
+      "path": "/auth/token",
+      "request_schema": {
+        "username": "str",
+        "password": "str"
+      },
+      "response_schema": {
+        "access_token": "str",
+        "token_type": "str"
+      },
+      "auth": "none",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "request_schema": {},
+      "response_schema": {
+        "status": "str",
+        "version": "str"
+      },
+      "auth": "none",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "request_schema": {},
+      "response_schema": {
+        "status": "str",
+        "version": "str"
+      },
+      "auth": "none",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "POST",
+      "path": "/tasks",
+      "request_schema": {
+        "user_id": "int",
+        "title": "str"
+      },
+      "response_schema": {
+        "task_id": "int"
+      },
+      "auth": "user",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "PUT",
+      "path": "/tasks/{task_id}/complete",
+      "request_schema": {
+        "user_id": "int"
+      },
+      "response_schema": {
+        "status": "str"
+      },
+      "auth": "user",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/tasks/{task_id}",
+      "request_schema": {
+        "user_id": "int"
+      },
+      "response_schema": {
+        "status": "str"
+      },
+      "auth": "user",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "POST",
+      "path": "/register",
+      "request_schema": {
+        "email": "str",
+        "name": "str",
+        "hashed_password": "str"
+      },
+      "response_schema": {
+        "msg": "str"
+      },
+      "auth": "none",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "POST",
+      "path": "/login",
+      "request_schema": {
+        "username": "str",
+        "password": "str"
+      },
+      "response_schema": {
+        "access_token": "str",
+        "token_type": "str"
+      },
+      "auth": "none",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "POST",
+      "path": "/tasks",
+      "request_schema": {
+        "id": "int",
+        "title": "str",
+        "description": "str",
+        "completed": "bool"
+      },
+      "response_schema": {
+        "msg": "str"
+      },
+      "auth": "jwt",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "PUT",
+      "path": "/tasks/{id}/complete",
+      "request_schema": {},
+      "response_schema": {
+        "msg": "str"
+      },
+      "auth": "jwt",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/tasks/{id}",
+      "request_schema": {},
+      "response_schema": "none",
+      "auth": "jwt",
+      "errors": [],
+      "producer_agent": "backend",
+      "source_files": []
+    }
+  ],
+  "models": [
+    {
+      "name": "User",
+      "fields": {
+        "id": "integer",
+        "email": "text",
+        "password": "text"
+      },
+      "relationships": [],
+      "constraints": [],
+      "producer_agent": "backend"
+    },
+    {
+      "name": "Task",
+      "fields": {
+        "id": "integer",
+        "user_id": "integer",
+        "title": "text",
+        "completed": "boolean"
+      },
+      "relationships": [],
+      "constraints": [],
+      "producer_agent": "backend"
+    },
+    {
+      "name": "Task",
+      "fields": {
+        "id": "integer",
+        "user_id": "integer",
+        "title": "text",
+        "completed": "boolean"
+      },
+      "relationships": [],
+      "constraints": [],
+      "producer_agent": "backend"
+    },
+    {
+      "name": "User",
+      "fields": {
+        "email": "text",
+        "name": "text",
+        "hashed_password": "text"
+      },
+      "relationships": [],
+      "constraints": [],
+      "producer_agent": "backend"
+    },
+    {
+      "name": "Task",
+      "fields": {
+        "id": "integer",
+        "title": "text",
+        "description": "text",
+        "completed": "boolean",
+        "user_id": "integer"
+      },
+      "relationships": [],
+      "constraints": [],
+      "producer_agent": "backend"
+    }
+  ],
+  "events": [],
+  "ui_deps": []
+}

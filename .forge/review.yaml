@@ -1,0 +1,37 @@
+issues:
+- file: frontend/vite.config.js
+  message: Incorrect Vite plugin imported; should be for Vue not React, as the project
+    uses Vue.
+  severity: error
+- file: backend/routes.py
+  message: The jwt library is imported but not used. Consider replacing with the 'jose'
+    module import since it's been used for JWT creation and verification.
+  severity: error
+- file: frontend/src/App.vue
+  message: The project is using React for the frontend components like 'TaskForm.jsx'.
+    However, 'App.vue' indicates usage of Vue in index.js, which is inconsistent.
+  severity: error
+- file: frontend/index.html
+  message: Script reference is to a Vue setup whereas generated components use React.
+  severity: error
+- file: frontend/src/main.js
+  message: File configures a Vue app whereas frontend components appear to be written
+    using React, creating inconsistent usage. Use React setup in main entry scripts.
+  severity: error
+- file: backend/auth.py
+  message: Hardcoded SECRET_KEY should be fetched from environment variables for security
+    best practices.
+  severity: error
+- file: frontend/src/api.js
+  message: The endpoint used for fetching task counts (/tasks/counts) is not defined
+    in the backend. Ensure the backend supports this operation or remove this call.
+  severity: warning
+- file: frontend/src/components/Dashboard.js
+  message: Ensure error handling covers displaying API errors clearly to the user
+    when task counts fetch fails.
+  severity: warning
+- file: backend/tasks.py
+  message: Consider adding validation for inputs in task creation and completion to
+    prevent SQL injection.
+  severity: warning
+passed: false
