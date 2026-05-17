@@ -346,6 +346,15 @@ const openGitHubLogin = () => {
   githubError.value = '';
 };
 
+const openGitHubForProject = (projectId = selectedId.value) => {
+  if (projectId) {
+    selectedId.value = projectId;
+    repoForm.projectId = projectId;
+  }
+
+  openGitHubLogin();
+};
+
 const logoutGitHub = () => {
   logoutGitHubSession()
     .catch(() => null)
@@ -640,7 +649,7 @@ onBeforeUnmount(() => {
       <div class="brand">
         <div class="brand-mark">C</div>
         <div>
-          <p class="eyebrow">Cohort OS</p>
+          <p class="eyebrow">PM OS</p>
           <h1>Current Week</h1>
         </div>
       </div>
@@ -764,6 +773,9 @@ onBeforeUnmount(() => {
           <div class="search-shell">
             <input v-model="searchQuery" class="search-input" placeholder="Search project, owner, repo..." />
           </div>
+          <button class="detail-action topbar-secondary-action" @click="openGitHubForProject()">
+            {{ githubUser ? 'Connect repo' : 'Login with GitHub' }}
+          </button>
           <button class="command-trigger" @click="commandOpen = true">⌘K</button>
           <button class="primary-action" @click="openComposer">New submission</button>
         </div>
@@ -1297,6 +1309,9 @@ onBeforeUnmount(() => {
         </div>
 
         <footer class="card-modal-footer">
+          <button class="detail-action" @click="openGitHubForProject(selectedProject.id)">
+            {{ selectedProject.repo ? 'Change repo' : 'Connect repo' }}
+          </button>
           <button v-if="selectedProject.repo" class="detail-action" :disabled="githubBusy" @click="simulateGitHubSync">
             {{ githubBusy ? 'Syncing...' : 'Sync from GitHub' }}
           </button>

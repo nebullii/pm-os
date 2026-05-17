@@ -3,14 +3,129 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cohort OS</title>
+    <title>PM OS</title>
     <meta
       name="description"
-      content="A Linear-inspired weekly shipping board built for cohort submissions and Friday voting."
+      content="PM OS is a GitHub-connected cohort project board that shows what actually shipped, what is ready, and what deserves review."
     />
+    <meta property="og:title" content="PM OS" />
+    <meta
+      property="og:description"
+      content="GitHub-connected project management for cohorts that need proof-backed progress instead of self-reported status."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/src/main.js"></script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="fallback-shell" aria-hidden="true">
+        <aside class="fallback-sidebar">
+          <div class="fallback-brand">
+            <div class="brand-mark">P</div>
+            <div>
+              <p class="eyebrow">PM OS</p>
+              <h1>Current Week</h1>
+            </div>
+          </div>
+
+          <section class="fallback-panel">
+            <p class="eyebrow">Why It Wins</p>
+            <h2>GitHub as source of truth</h2>
+            <p>
+              Most cohort PM tools rely on self-reported updates. PM OS is built to reflect what actually moved in code.
+            </p>
+          </section>
+
+          <section class="fallback-panel">
+            <p class="eyebrow">Signals</p>
+            <ul class="fallback-list">
+              <li>Proof-backed submissions</li>
+              <li>Repo-connected project tracking</li>
+              <li>Friday review and vote readiness</li>
+            </ul>
+          </section>
+        </aside>
+
+        <main class="fallback-workspace">
+          <header class="fallback-topbar">
+            <div>
+              <p class="eyebrow">Submissions / Week 3</p>
+              <h2>Weekly shipping review</h2>
+              <p class="fallback-copy">
+                PM OS helps cohorts see what shipped, what is stale, and what deserves review without waiting for manual updates.
+              </p>
+            </div>
+            <div class="fallback-actions">
+              <span class="fallback-chip">GitHub-connected</span>
+              <span class="fallback-chip">Proof-first</span>
+              <span class="fallback-chip">Review-ready</span>
+            </div>
+          </header>
+
+          <section class="fallback-stats">
+            <article class="fallback-stat-card">
+              <span class="stat-label">Shipped this week</span>
+              <strong>3</strong>
+              <small>Completed and posted</small>
+            </article>
+            <article class="fallback-stat-card">
+              <span class="stat-label">Ready for Friday</span>
+              <strong>2</strong>
+              <small>Has proof and demo link</small>
+            </article>
+            <article class="fallback-stat-card">
+              <span class="stat-label">Connected repos</span>
+              <strong>4</strong>
+              <small>Auto-sync enabled</small>
+            </article>
+          </section>
+
+          <section class="fallback-board">
+            <article class="fallback-column">
+              <div class="fallback-column-header">
+                <span class="lane-dot" data-tone="slate"></span>
+                <h3>Scoping</h3>
+              </div>
+              <div class="fallback-card">
+                <span class="issue-id">PM-091</span>
+                <strong>Proof-first submissions</strong>
+                <p>Requires screenshot, repo, and a clear shipping claim before entering review.</p>
+              </div>
+            </article>
+
+            <article class="fallback-column">
+              <div class="fallback-column-header">
+                <span class="lane-dot" data-tone="blue"></span>
+                <h3>Building</h3>
+              </div>
+              <div class="fallback-card">
+                <span class="issue-id">PM-102</span>
+                <strong>Ship radar</strong>
+                <p>Flags stale repos and makes weekly progress legible from actual activity.</p>
+              </div>
+            </article>
+
+            <article class="fallback-column">
+              <div class="fallback-column-header">
+                <span class="lane-dot" data-tone="amber"></span>
+                <h3>Ready To Demo</h3>
+              </div>
+              <div class="fallback-card">
+                <span class="issue-id">PM-108</span>
+                <strong>Async demo queue</strong>
+                <p>Turns weekly submissions into a ranked review queue with proof and repo context.</p>
+              </div>
+            </article>
+          </section>
+        </main>
+      </div>
+    </div>
+    <noscript>
+      <div class="noscript-shell">
+        <strong>PM OS needs JavaScript for the interactive board.</strong>
+        <p>The static preview is shown above, but login, repo sync, and workflow actions require the app bundle.</p>
+      </div>
+    </noscript>
   </body>
 </html>
